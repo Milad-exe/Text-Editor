@@ -18,17 +18,15 @@ private:
     float fontSize;
     bool showMenu;
 
-    // Clipboard functionality
     std::string clipboardText;
 
-    // Status tracking
     int currentLine;
     int currentColumn;
     int wordCount;
     int charCount;
 
 public:
-    TextEditor() : bufferSize(1024 * 1024), hasUnsavedChanges(false), fontSize(30.0f), showMenu(false),
+    TextEditor() : bufferSize(1024 * 1024), hasUnsavedChanges(false), fontSize(20.0f), showMenu(false),
         currentLine(1), currentColumn(1), wordCount(0), charCount(0) {
         textBuffer = new char[bufferSize];
         textBuffer[0] = '\0';
@@ -39,450 +37,266 @@ public:
     }
 
     void NewFile() {
-        if (hasUnsavedChanges) {
-            int result = tinyfd_messageBox(
-                "Unsaved Changes",
-                "You have unsaved changes. Do you want to save before creating a new file?",
-                "yesnocancel",
-                "question",
-                1
-            );
-
-            if (result == 1) { // Yes
-                SaveFile();
-            }
-            else if (result == 0) { // Cancel
-                return;
-            }
-        }
-
+        if (hasUnsavedChanges && ConfirmSave()) SaveFile();
         textBuffer[0] = '\0';
         currentFilePath.clear();
         hasUnsavedChanges = false;
         UpdateStats();
     }
 
+    bool ConfirmSave() {
+        int result = tinyfd_messageBox("Unsaved Changes", "Save before continuing?", "yesnocancel", "question", 1);
+        return result == 1;
+    }
+
     void OpenFile() {
-        if (hasUnsavedChanges) {
-            int result = tinyfd_messageBox(
-                "Unsaved Changes",
-                "You have unsaved changes. Do you want to save before opening a new file?",
-                "yesnocancel",
-                "question",
-                1
-            );
+        if (hasUnsavedChanges && ConfirmSave()) SaveFile();
 
-            if (result == 1) { // Yes
-                SaveFile();
-            }
-            else if (result == 0) { // Cancel
-                return;
-            }
-        }
-
-        const char* filterPatterns[1] = { "*.txt" };
-        char const* filePath = tinyfd_openFileDialog(
-            "Open File",
-            "",
-            1,
-            filterPatterns,
-            "Text Files",
-            0
-        );
-
-        if (filePath) {
-            std::ifstream file(filePath);
-            if (file.is_open()) {
-                std::stringstream buffer;
-                buffer << file.rdbuf();
-                std::string content = buffer.str();
-
+        const char* filter[1] = { "*.txt" };
+        const char* path = tinyfd_openFileDialog("Open File", "", 1, filter, "Text Files", 0);
+        if (path) {
+            std::ifstream file(path);
+            if (file) {
+                std::stringstream buf;
+                buf << file.rdbuf();
+                std::string content = buf.str();
                 if (content.length() < bufferSize - 1) {
                     strcpy(textBuffer, content.c_str());
-                    currentFilePath = filePath;
+                    currentFilePath = path;
                     hasUnsavedChanges = false;
                     UpdateStats();
                 }
                 else {
-                    tinyfd_messageBox("Error", "File is too large to open!", "ok", "error", 1);
+                    tinyfd_messageBox("Error", "File too large!", "ok", "error", 1);
                 }
-                file.close();
-            }
-            else {
-                tinyfd_messageBox("Error", "Could not open file!", "ok", "error", 1);
             }
         }
     }
 
     void SaveFile() {
-        if (currentFilePath.empty()) {
-            SaveAsFile();
-        }
+        if (currentFilePath.empty()) SaveAsFile();
         else {
             std::ofstream file(currentFilePath);
-            if (file.is_open()) {
+            if (file) {
                 file << textBuffer;
-                file.close();
                 hasUnsavedChanges = false;
-            }
-            else {
-                tinyfd_messageBox("Error", "Could not save file!", "ok", "error", 1);
             }
         }
     }
 
     void SaveAsFile() {
-        const char* filterPatterns[1] = { "*.txt" };
-        char const* filePath = tinyfd_saveFileDialog(
-            "Save File As",
-            "untitled.txt",
-            1,
-            filterPatterns,
-            "Text Files"
-        );
-
-        if (filePath) {
-            std::ofstream file(filePath);
-            if (file.is_open()) {
+        const char* filter[1] = { "*.txt" };
+        const char* path = tinyfd_saveFileDialog("Save File As", "untitled.txt", 1, filter, "Text Files");
+        if (path) {
+            std::ofstream file(path);
+            if (file) {
                 file << textBuffer;
-                file.close();
-                currentFilePath = filePath;
+                currentFilePath = path;
                 hasUnsavedChanges = false;
-            }
-            else {
-                tinyfd_messageBox("Error", "Could not save file!", "ok", "error", 1);
             }
         }
     }
 
     void CopyText() {
-        // In a real implementation, you'd get the selected text
-        // For simplicity, we'll copy all text
         clipboardText = std::string(textBuffer);
         glfwSetClipboardString(nullptr, clipboardText.c_str());
     }
 
     void CutText() {
-        // In a real implementation, you'd cut only selected text
-        // For simplicity, we'll cut all text
-        clipboardText = std::string(textBuffer);
-        glfwSetClipboardString(nullptr, clipboardText.c_str());
+        CopyText();
         textBuffer[0] = '\0';
         hasUnsavedChanges = true;
         UpdateStats();
     }
 
     void PasteText() {
-        const char* clipboard = glfwGetClipboardString(nullptr);
-        if (clipboard) {
-            size_t currentLen = strlen(textBuffer);
-            size_t clipLen = strlen(clipboard);
-
-            if (currentLen + clipLen < bufferSize - 1) {
-                strcat(textBuffer, clipboard);
-                hasUnsavedChanges = true;
-                UpdateStats();
-            }
+        const char* clip = glfwGetClipboardString(nullptr);
+        if (clip && strlen(textBuffer) + strlen(clip) < bufferSize - 1) {
+            strcat(textBuffer, clip);
+            hasUnsavedChanges = true;
+            UpdateStats();
         }
     }
 
-    void ZoomIn() {
-        fontSize = std::min(fontSize + 2.0f, 72.0f);
-    }
-
-    void ZoomOut() {
-        fontSize = std::max(fontSize - 2.0f, 8.0f);
-    }
+    void ZoomIn() { fontSize = std::min(fontSize + 2.0f, 48.0f); }
+    void ZoomOut() { fontSize = std::max(fontSize - 2.0f, 8.0f); }
 
     void UpdateStats() {
-        // Count characters (excluding null terminator)
         charCount = strlen(textBuffer);
-
-        // Count words
-        wordCount = 0;
-        bool inWord = false;
+        wordCount = 0; bool inWord = false;
         for (int i = 0; i < charCount; i++) {
-            if (isspace(textBuffer[i]) || textBuffer[i] == '\n' || textBuffer[i] == '\t') {
-                inWord = false;
-            }
-            else if (!inWord) {
-                inWord = true;
-                wordCount++;
-            }
+            if (isspace(textBuffer[i])) inWord = false;
+            else if (!inWord) { inWord = true; wordCount++; }
         }
     }
 
     void UpdateCursorPosition() {
-        currentLine = 1;
-        currentColumn = 1;
-
-        // Count lines and get column position at end of text
+        currentLine = 1; currentColumn = 1;
         for (int i = 0; i < charCount; i++) {
-            if (textBuffer[i] == '\n') {
-                currentLine++;
-                currentColumn = 1;
-            }
-            else {
-                currentColumn++;
-            }
+            if (textBuffer[i] == '\n') { currentLine++; currentColumn = 1; }
+            else currentColumn++;
         }
     }
 
-    void Render() {
-        // Get window size
+    void Render(ImFont* font) {
         ImGuiIO& io = ImGui::GetIO();
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        // Menu button at top-left
-        ImGui::SetNextWindowPos(ImVec2(1, 1));
-        ImGui::SetNextWindowSizeConstraints(ImVec2(25, 25), ImVec2(25, 25));
-        ImGui::Begin("MenuButton", nullptr,
-            ImGuiWindowFlags_NoDecoration |
-            ImGuiWindowFlags_AlwaysAutoResize |
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoFocusOnAppearing |
-            ImGuiWindowFlags_NoNav);
+        ImGui::PushFont(font);
 
-        if (ImGui::Button("Menu", ImVec2(25, 25))) {
-            showMenu = !showMenu;
+        // Custom title bar
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, 50));
+        ImGui::Begin("TitleBar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
+        ImGui::SetCursorPosY(6);
+        ImGui::Text("  Text Editor");
+        ImGui::SameLine(io.DisplaySize.x - 130);
+        if (ImGui::Button("_")) glfwIconifyWindow(glfwGetCurrentContext());
+        ImGui::SameLine();
+        if (ImGui::Button("[ ]")) {
         }
+        ImGui::SameLine();
+        if (ImGui::Button("X")) glfwSetWindowShouldClose(glfwGetCurrentContext(), GLFW_TRUE);
         ImGui::End();
 
-        // Dropdown menu
+        // Menu Button properly aligned
+        ImGui::SetNextWindowPos(ImVec2(0, 30));
+        ImGui::SetNextWindowSize(ImVec2(50, 50));
+        ImGui::Begin("MenuButton", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
+        ImGui::SetCursorPos(ImVec2(10, 5));
+        if (ImGui::Button("\xef\x84\xa3##menu")) showMenu = !showMenu;
+        ImGui::End();
+
         if (showMenu) {
-            ImGui::SetNextWindowPos(ImVec2(10, 55));
-            ImGui::Begin("DropdownMenu", &showMenu,
-                ImGuiWindowFlags_NoTitleBar |
-                ImGuiWindowFlags_AlwaysAutoResize);
-
-            // File menu
-            if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("New", "Ctrl+N")) {
-                    NewFile();
-                    showMenu = !showMenu;
-                }
-                if (ImGui::MenuItem("Open", "Ctrl+O")) {
-                    OpenFile();
-                    showMenu = !showMenu;
-                }
-                if (ImGui::MenuItem("Save", "Ctrl+S")) {
-                    SaveFile();
-                    showMenu = !showMenu;
-                }
-                if (ImGui::MenuItem("Save As", "Ctrl+Shift+S")) {
-                    SaveAsFile();
-                    showMenu = !showMenu;
-                }
-                ImGui::EndMenu();
+            ImGui::SetNextWindowPos(ImVec2(10, 65));
+            ImGui::Begin("Menu", &showMenu, ImGuiWindowFlags_NoDecoration);
+            if (ImGui::MenuItem("New")) {
+                NewFile();
+                showMenu = false;
             }
-
-            // Edit menu
-            if (ImGui::BeginMenu("Edit")) {
-                if (ImGui::MenuItem("Copy", "Ctrl+C")) {
-                    CopyText();
-                    showMenu = !showMenu;
-                }
-                if (ImGui::MenuItem("Cut", "Ctrl+X")) {
-                    CutText();
-                    showMenu = !showMenu;
-                }
-                if (ImGui::MenuItem("Paste", "Ctrl+V")) {
-                    PasteText();
-                    showMenu = !showMenu;
-                }
-                ImGui::EndMenu();
+            if (ImGui::MenuItem("Open")) {
+                OpenFile();
+                showMenu = false;
             }
-
-            // View menu
-            if (ImGui::BeginMenu("View")) {
-                if (ImGui::MenuItem("Zoom In", "Ctrl++")) {
-                    ZoomIn();
-                }
-                if (ImGui::MenuItem("Zoom Out", "Ctrl+-")) {
-                    ZoomOut();
-                }
-                ImGui::EndMenu();
+            if (ImGui::MenuItem("Save")) {
+                SaveFile();
+                showMenu = false;
             }
-
-            // Settings menu (placeholder)
-            if (ImGui::BeginMenu("Settings")) {
-                ImGui::Text("Settings will be implemented later");
-                ImGui::EndMenu();
-                showMenu = !showMenu;
+            if (ImGui::MenuItem("Save As")) {
+                SaveAsFile();
+                showMenu = false;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Copy")) {
+                CopyText();
+                showMenu = false;
+            }
+            if (ImGui::MenuItem("Cut")) {
+                CutText();
+                showMenu = false;
+            }
+            if (ImGui::MenuItem("Paste")) {
+                PasteText();
+                showMenu = false;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Zoom In")) {
+                ZoomIn();
+            }
+            if (ImGui::MenuItem("Zoom Out")) {
+                ZoomOut();
             }
 
             ImGui::End();
         }
 
-        // Main text editor area
-        ImGui::SetNextWindowPos(ImVec2(0, 80));
-        ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, io.DisplaySize.y - 130)); // Leave space for status bar
+        ImGui::SetNextWindowPos(ImVec2(10, 100));
+        ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x - 20, io.DisplaySize.y - 160));
+        ImGui::Begin("Editor", nullptr, ImGuiWindowFlags_NoTitleBar);
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 10));
-        ImGui::Begin("TextEditor", nullptr,
-            ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoCollapse);
-
-        // Set font size
-        ImGui::SetWindowFontScale(fontSize / 16.0f);
-
-        // Text input area
-        ImGuiInputTextFlags flags = ImGuiInputTextFlags_AllowTabInput |
-            ImGuiInputTextFlags_CallbackEdit;
-
-        if (ImGui::InputTextMultiline("##TextEditor", textBuffer, bufferSize,
-            ImVec2(-1, -1), flags, [](ImGuiInputTextCallbackData* data) -> int {
-                TextEditor* editor = (TextEditor*)data->UserData;
-                editor->hasUnsavedChanges = true;
-                editor->UpdateStats();
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackEdit;
+        if (ImGui::InputTextMultiline("##text", textBuffer, bufferSize,
+            ImVec2(io.DisplaySize.x - 40, io.DisplaySize.y - 200), flags,
+            [](ImGuiInputTextCallbackData* data) -> int {
+                TextEditor* ed = (TextEditor*)data->UserData;
+                ed->hasUnsavedChanges = true;
+                ed->UpdateStats();
                 return 0;
             }, this)) {
+            showMenu = false;
             hasUnsavedChanges = true;
             UpdateStats();
         }
-
-        // Update cursor position
         UpdateCursorPosition();
-
-        ImGui::PopStyleVar();
         ImGui::End();
 
-        // Status bar
         ImGui::SetNextWindowPos(ImVec2(0, io.DisplaySize.y - 50));
         ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, 50));
-        ImGui::Begin("StatusBar", nullptr,
-            ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoScrollbar);
-
-        // Top row - File status and font size
-        std::string status = currentFilePath.empty() ? "Untitled" : currentFilePath;
-        if (hasUnsavedChanges) {
-            status += " *";
-        }
-        status += " | Font Size: " + std::to_string((int)fontSize);
-        ImGui::Text("%s", status.c_str());
-
-        ImGui::Separator();
-
-        // Bottom row - Three sections
-        float windowWidth = ImGui::GetWindowWidth();
-        float sectionWidth = windowWidth / 3.0f;
-
-        // Section 1: Line and Column
-        ImGui::Text("Ln: %d, Col: %d", currentLine, currentColumn);
-
-        // Section 2: Word Count
-        ImGui::SameLine();
-        ImGui::SetCursorPosX(sectionWidth);
-        ImGui::Text("Words: %d", wordCount);
-
-        // Section 3: Character Count
-        ImGui::SameLine();
-        ImGui::SetCursorPosX(sectionWidth * 2);
-        ImGui::Text("Characters: %d", charCount);
-
+        ImGui::Begin("Status", nullptr, ImGuiWindowFlags_NoDecoration);
+        std::string status = (currentFilePath.empty() ? "Untitled" : currentFilePath);
+        if (hasUnsavedChanges) status += " *";
+        ImGui::Text("%s | Ln %d, Col %d | Words: %d | Chars: %d | Font: %.0fpx",
+            status.c_str(), currentLine, currentColumn, wordCount, charCount, fontSize);
         ImGui::End();
-        ImGui::PopStyleVar(); // restore padding
-        // Handle keyboard shortcuts
-        if (io.KeyCtrl) {
-            if (ImGui::IsKeyPressed(ImGuiKey_N)) NewFile();
-            if (ImGui::IsKeyPressed(ImGuiKey_O)) OpenFile();
-            if (ImGui::IsKeyPressed(ImGuiKey_S)) {
-                if (io.KeyShift) SaveAsFile();
-                else SaveFile();
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_C)) CopyText();
-            if (ImGui::IsKeyPressed(ImGuiKey_X)) CutText();
-            if (ImGui::IsKeyPressed(ImGuiKey_V)) PasteText();
-            if (ImGui::IsKeyPressed(ImGuiKey_Equal)) ZoomIn();
-            if (ImGui::IsKeyPressed(ImGuiKey_Minus)) ZoomOut();
-        }
 
-        // Close menu when clicking elsewhere
-        if (showMenu && ImGui::IsMouseClicked(0)) {
-            ImVec2 mousePos = ImGui::GetMousePos();
-            ImVec2 menuPos = ImVec2(10, 55);
-            if (mousePos.x < menuPos.x || mousePos.x > menuPos.x + 200 ||
-                mousePos.y < menuPos.y || mousePos.y > menuPos.y + 150) {
-                showMenu = false;
-            }
-        }
+        ImGui::PopFont();
     }
-
 };
 
 int main() {
-    // Initialize GLFW
-    if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return -1;
-    }
-
-    // Create window
-    GLFWwindow* window = glfwCreateWindow(1200, 800, "Simple Text Editor", nullptr, nullptr);
-    if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-
+    if (!glfwInit()) return -1;
+    GLFWwindow* window = glfwCreateWindow(1200, 800, "Text Editor", NULL, NULL);
+    if (!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // Enable vsync
+    glfwSwapInterval(1);
 
-    // Setup ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    ImGui::StyleColorsLight();
 
-    // Setup ImGui style
-    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 12.0f;
+    style.FrameRounding = 6.0f;
+    style.ScrollbarRounding = 12.0f;
+    style.GrabRounding = 6.0f;
+    style.FramePadding = ImVec2(10, 6);
+    style.ItemSpacing = ImVec2(10, 10);
+    style.WindowPadding = ImVec2(20, 20);
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.95f, 0.95f, 0.96f, 1.0f);
+    style.Colors[ImGuiCol_Text] = ImVec4(0.1f, 0.1f, 0.1f, 1.0f);
 
-    // Setup Platform/Renderer bindings
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 120");
 
-    // Create text editor instance
-    TextEditor editor;
+    ImFont* font = io.Fonts->AddFontFromFileTTF("../resources/Roboto-VariableFont_wdth,wght.ttf", 20.0f);
+    if (!font) font = io.Fonts->AddFontDefault();
 
-    // Initial stats update
+    TextEditor editor;
     editor.UpdateStats();
 
-    // Main loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-
-        // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // Render text editor
-        editor.Render();
+        editor.Render(font);
 
-        // Rendering
         ImGui::Render();
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
-        glClearColor(0.45f, 0.55f, 0.60f, 1.00f);
+        glClearColor(0.95f, 0.95f, 0.96f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
     }
 
-    // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-
     glfwDestroyWindow(window);
     glfwTerminate();
-
     return 0;
 }
